@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pokédex</title>
+    <link rel="stylesheet" href="pokemon.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+    <script src="pokemon.js" defer></script>
+</head>
+<body>
+    <div class="pokedex">
+        <span class="vis vis-haut"></span>
+        <span class="vis vis-bas"></span>
+
+        <div class="pokedex-entete">
+            <button type="button" id="bouton-oeil" class="oeil" title="Identifier un Pokémon depuis une image">
+                <div class="oeil-reflet"></div>
+            </button>
+            <input type="file" id="input-image" accept="image/*" hidden>
+            <div class="petites-lumieres">
+                <span class="lumiere rouge"></span>
+                <span class="lumiere jaune"></span>
+                <span class="lumiere verte"></span>
+            </div>
+        </div>
+
+        <div class="cadre-ecran">
+            <div class="ecran">
+                <div class="barre-recherche">
+                    <div class="barre-recherche-langue">
+                        <button id="bouton-langue" type="button" title="Changer la langue">EN</button>
+                    </div>
+                    <label for="recherche" id="label-recherche">Nom (français) ou numéro du Pokémon :</label>
+                    <div class="barre-recherche-champs">
+                        <input id="recherche" type="text" placeholder="salamèche ou 4">
+                        <button id="chercher">Rechercher</button>
+                    </div>
+                </div>
+
+                <p id="statut-identification"></p>
+
+                <p id="erreur"></p>
+
+                <div id="resultat"></div>
+            </div>
+        </div>
+
+        <div class="pokedex-bas">
+            <div class="grille-haut-parleur">
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+
+            <div class="commandes">
+                <div class="croix-directionnelle">
+                    <span class="branche verticale"></span>
+                    <span class="branche horizontale"></span>
+                </div>
+                <div class="boutons-ronds">
+                    <span class="bouton-rond bleu"></span>
+                    <span class="bouton-rond noir"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
