@@ -1,7 +1,6 @@
 # Prediction-only dependencies for the hosted Docker image (see Dockerfile).
-# No TensorFlow: predictions use pokemon_model.tflite with the TFLite runtime
-# (ai-edge-litert), which fits in a free host's 512 MB of RAM.
-ai-edge-litert
+# No PyTorch/TensorFlow: predict_onnx.py runs pokemon_model.onnx with
+# onnxruntime, which fits in a free host's 512 MB of RAM.
+onnxruntime
 numpy
 pillow
-requests

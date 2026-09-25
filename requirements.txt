@@ -6,3 +6,6 @@ scikit-learn
 ddgs
 torch
 torchvision
+onnx
+onnxscript
+onnxruntime

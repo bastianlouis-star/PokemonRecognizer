@@ -19,7 +19,8 @@ const MIME_TYPES = {
 
 // PYTHON overrides the local Windows venv, e.g. in the Docker image (Dockerfile)
 const PYTHON = process.env.PYTHON || path.join(ROOT, '.venv', 'Scripts', 'python.exe')
-const SCRIPT_PATH = path.join(ROOT, 'whoIsThatPokemon.py')
+// EfficientNet-B0 model exported to ONNX (see whoIsThatPokemon_torch.py export-onnx)
+const SCRIPT_PATH = path.join(ROOT, 'predict_onnx.py')
 const UPLOADS_DIR = path.join(ROOT, 'uploads')
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
@@ -73,9 +74,9 @@ function gererIdentification(req, res) {
             execFile(
                 PYTHON,
                 [SCRIPT_PATH, 'predict', cheminImage, '--json'],
-                // Each call starts Python + TensorFlow and loads the model (~15s
-                // on an idle CPU, ~50s+ while a training run is using it)
-                { timeout: 180000, maxBuffer: 5 * 1024 * 1024 },
+                // ~1-2s per call (Python start + ONNX model load); the margin
+                // covers a CPU busy with a training run or a host waking up
+                { timeout: 60000, maxBuffer: 5 * 1024 * 1024 },
                 (error, stdout, stderr) => {
                     fs.unlink(cheminImage, () => {})
 

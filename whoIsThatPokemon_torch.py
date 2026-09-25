@@ -16,6 +16,7 @@ The machine this runs on has no GPU, so training is organized around that:
 Usage:
     python whoIsThatPokemon_torch.py train [--limit N] [--epochs N] [--epochs-fine N]
     python whoIsThatPokemon_torch.py predict <image_path> [--json]
+    python whoIsThatPokemon_torch.py export-onnx
 """
 
 import argparse
@@ -37,6 +38,9 @@ from whoIsThatPokemon import DATA_DIR, IDS_PATH, INDICES_SPRITES_DE_DOS, separer
 
 IMG_SIZE = 128
 MODEL_PATH = Path(__file__).parent / "pokemon_model_torch.pt"
+# Portable copy of the model used by the website (predict_onnx.py): the ONNX
+# runtime is ~15 MB where PyTorch is several hundred, too much for free hosts
+ONNX_PATH = Path(__file__).parent / "pokemon_model.onnx"
 BATCH_SIZE = 64
 BLOCS_A_AJUSTER = 2  # last EfficientNet feature blocks unfrozen in phase 2
 
@@ -202,12 +206,35 @@ def entrainer(limit=None, epochs=30, epochs_fine=5):
     print(f"Modèle sauvegardé dans {MODEL_PATH}")
 
 
-def predire(chemin_image, sortie_json=False):
+def charger_modele():
     sauvegarde = torch.load(MODEL_PATH, weights_only=True)
     class_names = sauvegarde["class_names"]
     model = creer_modele(len(class_names))
     model.load_state_dict(sauvegarde["state_dict"])
     model.eval()
+    return model, class_names
+
+
+def exporter_onnx():
+    """Export the trained model to ONNX_PATH, with everything predict_onnx.py
+    needs (class names, input size, normalization) stored in its metadata."""
+    import onnx
+
+    model, class_names = charger_modele()
+    exemple = torch.zeros(1, 3, IMG_SIZE, IMG_SIZE)
+    torch.onnx.export(model, (exemple,), ONNX_PATH, input_names=["image"], output_names=["logits"],
+                      dynamo=True, external_data=False)
+
+    modele_onnx = onnx.load(ONNX_PATH)
+    for cle, valeur in {"class_names": class_names, "img_size": IMG_SIZE,
+                        "mean": MOYENNE, "std": ECART_TYPE}.items():
+        modele_onnx.metadata_props.add(key=cle, value=json.dumps(valeur, ensure_ascii=False))
+    onnx.save(modele_onnx, ONNX_PATH)
+    print(f"Modèle ONNX sauvegardé dans {ONNX_PATH} ({ONNX_PATH.stat().st_size / 1e6:.1f} Mo)")
+
+
+def predire(chemin_image, sortie_json=False):
+    model, class_names = charger_modele()
 
     with torch.no_grad():
         logits = model(TRANSFORM_EVAL(ouvrir_image(chemin_image)).unsqueeze(0))[0]
@@ -239,6 +266,8 @@ if __name__ == "__main__":
     parser_predict.add_argument("image", help="Chemin vers l'image à identifier")
     parser_predict.add_argument("--json", action="store_true", help="Sortie JSON (pour un appel programmatique)")
 
+    sous_commandes.add_parser("export-onnx", help="Exporte le modèle entraîné en ONNX (utilisé par le site)")
+
     args = parser.parse_args()
 
     if args.commande == "train":
@@ -247,3 +276,5 @@ if __name__ == "__main__":
         if not MODEL_PATH.exists():
             sys.exit("Aucun modèle entraîné. Lancez d'abord : python whoIsThatPokemon_torch.py train")
         predire(args.image, sortie_json=args.json)
+    elif args.commande == "export-onnx":
+        exporter_onnx()

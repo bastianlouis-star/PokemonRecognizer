@@ -3,7 +3,7 @@
 Un Pokédex web (façon jeu vidéo) qui permet de :
 
 - **Rechercher** un Pokémon de la 1ère génération par nom (français) ou par numéro, et afficher sa fiche (types, stats, évolutions, sprites...) via les API [Tyradex](https://tyradex.app/) et [PokéAPI](https://pokeapi.co/).
-- **"Qui est ce Pokémon ?"** : envoyer une photo et laisser un modèle de deep learning (TensorFlow / Keras, transfer learning sur MobileNetV2) deviner de quelle espèce il s'agit parmi les 151 Pokémon de la génération 1.
+- **"Qui est ce Pokémon ?"** : envoyer une photo et laisser un modèle de deep learning (transfer learning sur EfficientNet-B0 avec PyTorch, exporté en ONNX) deviner de quelle espèce il s'agit parmi les 1025 Pokémon.
 
 ## Structure du projet
 
@@ -11,7 +11,10 @@ Un Pokédex web (façon jeu vidéo) qui permet de :
 |---|---|
 | `pokemon.html`, `pokemon.css`, `pokemon.js` | Interface web (le Pokédex) |
 | `server.js` | Serveur HTTP Node.js : sert les fichiers statiques et expose `POST /api/identifier` |
-| `whoIsThatPokemon.py` | Script Python : téléchargement du dataset, entraînement et prédiction du modèle |
+| `whoIsThatPokemon.py` | Script Python : téléchargement du dataset, entraînement et prédiction du modèle TensorFlow (MobileNetV2) |
+| `whoIsThatPokemon_torch.py` | Entraînement du modèle PyTorch (EfficientNet-B0) et export ONNX |
+| `predict_onnx.py` | Prédiction légère utilisée par le site (modèle ONNX, dépend seulement de `onnxruntime`) |
+| `pokemon_model.onnx` | Modèle utilisé par le site (EfficientNet-B0 exporté en ONNX, liste des espèces incluse) |
 | `pokemon_model.keras` | Modèle entraîné (suivi via [Git LFS](https://git-lfs.com/)) |
 | `pokemon_class_names.json` | Liste des classes (id + nom) reconnues par le modèle |
 | `pokemon_dataset/` | Images d'entraînement téléchargées depuis PokéAPI (non versionné, voir `.gitignore`) |
@@ -49,7 +52,7 @@ node server.js
 Puis ouvrir [http://localhost:3000](http://localhost:3000).
 
 - La recherche par nom/numéro fonctionne directement (appels aux API publiques Tyradex/PokéAPI).
-- Le bouton en forme d'œil permet d'envoyer une image ; le serveur exécute `whoIsThatPokemon.py predict` via l'environnement virtuel (`.venv`) et renvoie le top 3 des Pokémon les plus probables.
+- Le bouton en forme d'œil permet d'envoyer une image ; le serveur exécute `predict_onnx.py predict` via l'environnement virtuel (`.venv`) et renvoie le top 3 des Pokémon les plus probables.
 
 ## Entraîner le modèle
 
@@ -87,18 +90,18 @@ Ajouter `--json` pour une sortie JSON (c'est ce que `server.js` utilise en inter
 ./.venv/Scripts/python whoIsThatPokemon_torch.py predict chemin/vers/image.png --json
 ```
 
-Le modèle est sauvegardé dans `pokemon_model_torch.pt` ; la sortie `--json` a le même format que celle de `whoIsThatPokemon.py`.
+Le modèle est sauvegardé dans `pokemon_model_torch.pt` (non versionné). C'est le modèle utilisé par le site, bien plus précis que la version TensorFlow sur le même jeu de test (93 % contre 59 % de bonnes réponses en premier choix, hors images de test présentes en double dans l'entraînement).
+
+Après chaque ré-entraînement, l'exporter en ONNX pour le site, puis committer `pokemon_model.onnx` :
+
+```bash
+./.venv/Scripts/python whoIsThatPokemon_torch.py export-onnx
+```
 
 ## Mise en ligne (Render, gratuit)
 
-L'application est hébergée via le `Dockerfile` sur l'offre gratuite de [Render](https://render.com/) (512 Mo de RAM). TensorFlow (~1,5 Go) n'y tient pas : l'image utilise une version TFLite du modèle (`pokemon_model.tflite`, ~4 Mo, quasiment la même précision) avec le runtime léger `ai-edge-litert`.
+L'application est hébergée via le `Dockerfile` sur l'offre gratuite de [Render](https://render.com/) (512 Mo de RAM). PyTorch et TensorFlow n'y tiennent pas : l'image contient seulement `predict_onnx.py`, le modèle `pokemon_model.onnx` et le runtime léger `onnxruntime`.
 
-1. Après chaque ré-entraînement, régénérer le modèle TFLite puis committer `pokemon_model.tflite` :
-
-   ```bash
-   ./.venv/Scripts/python whoIsThatPokemon.py export-tflite
-   ```
-
-2. Sur Render : **New > Blueprint**, sélectionner ce dépôt GitHub (le fichier `render.yaml` configure le service).
+Sur Render : **New > Blueprint**, sélectionner ce dépôt GitHub (le fichier `render.yaml` configure le service). Chaque push sur la branche choisie redéploie le site.
 
 Sur l'offre gratuite, le service se met en veille après 15 minutes sans visite ; la première requête suivante prend alors environ une minute.
