@@ -3,3 +3,6 @@ numpy
 pillow
 requests
 scikit-learn
+ddgs
+torch
+torchvision

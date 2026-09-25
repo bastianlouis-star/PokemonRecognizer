@@ -60,6 +60,7 @@ Le modèle fourni (`pokemon_model.keras`) est déjà entraîné, mais peut être
 ```
 
 - Télécharge automatiquement le dataset d'images (sprites de plusieurs générations/styles par espèce) depuis PokéAPI dans `pokemon_dataset/`.
+- Ajoute pour chaque espèce les 20 premiers résultats d'une recherche d'images web (`<nom> pokemon`, via DuckDuckGo : Google/Bing Images ne sont plus accessibles par script), enregistrés en `web_XX.png`. Ces images (artworks, cartes, captures, fan arts...) rapprochent le dataset des photos réellement envoyées. Les espèces déjà traitées sont ignorées aux lancements suivants.
 - Entraîne le modèle en deux phases (tête de classification puis fine-tuning des dernières couches de MobileNetV2).
 - Sauvegarde le résultat dans `pokemon_model.keras` et `pokemon_class_names.json`.
 
@@ -75,3 +76,15 @@ Options utiles :
 ```
 
 Ajouter `--json` pour une sortie JSON (c'est ce que `server.js` utilise en interne).
+
+## Variante PyTorch (EfficientNet-B0)
+
+`whoIsThatPokemon_torch.py` entraîne un second modèle avec PyTorch / torchvision (EfficientNet-B0 pré-entraîné sur ImageNet) sur le même dataset et le même découpage entraînement/test, pour comparer les deux approches. Le dataset doit déjà être téléchargé (via `whoIsThatPokemon.py train`).
+
+```bash
+./.venv/Scripts/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+./.venv/Scripts/python whoIsThatPokemon_torch.py train
+./.venv/Scripts/python whoIsThatPokemon_torch.py predict chemin/vers/image.png --json
+```
+
+Le modèle est sauvegardé dans `pokemon_model_torch.pt` ; la sortie `--json` a le même format que celle de `whoIsThatPokemon.py`.

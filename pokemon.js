@@ -107,6 +107,8 @@ const TEXTES = {
         identificationEnCours: "Analyse de l'image en cours...",
         identificationResultat: (confiance) => `Identifié depuis l'image (confiance : ${confiance})`,
         identificationErreur: "Impossible d'identifier ce Pokémon depuis cette image.",
+        serveurInjoignable: "Serveur injoignable : lancez « node server.js » puis ouvrez http://localhost:3000.",
+        imageTropGrosse: 'Image trop volumineuse (10 Mo maximum).',
     },
     en: {
         labelRecherche: 'Name (English) or Pokédex number:',
@@ -127,6 +129,8 @@ const TEXTES = {
         identificationEnCours: 'Analyzing image...',
         identificationResultat: (confiance) => `Identified from image (confidence: ${confiance})`,
         identificationErreur: 'Could not identify a Pokémon from this image.',
+        serveurInjoignable: 'Server unreachable: run "node server.js" and open http://localhost:3000.',
+        imageTropGrosse: 'Image too large (10 MB max).',
     },
 }
 
@@ -137,6 +141,8 @@ const boutonLangue = document.getElementById('bouton-langue')
 const boutonOeil = document.getElementById('bouton-oeil')
 const inputImage = document.getElementById('input-image')
 const statutIdentification = document.getElementById('statut-identification')
+const apercuIdentification = document.getElementById('apercu-identification')
+const imageIdentification = document.getElementById('image-identification')
 const erreur = document.getElementById('erreur')
 const resultat = document.getElementById('resultat')
 
@@ -400,9 +406,15 @@ function afficherResultat() {
     }
 }
 
-async function chercherPokemon() {
+// Also called directly as an event listener, where the argument is the event
+// (no garderApercu property): any manual search hides the uploaded image.
+async function chercherPokemon({ garderApercu = false } = {}) {
     const nomOuId = inputRecherche.value.trim().toLowerCase()
     const textes = TEXTES[langueActuelle]
+
+    if (!garderApercu) {
+        masquerApercu()
+    }
 
     erreur.textContent = ''
     statutIdentification.textContent = ''
@@ -464,29 +476,77 @@ boutonLangue.addEventListener('click', () => {
     afficherResultat()
 })
 
+const TAILLE_MAX_IMAGE = 10 * 1024 * 1024 // same limit as MAX_UPLOAD_SIZE in server.js
+
+function afficherApercu(fichier) {
+    masquerApercu()
+    imageIdentification.src = URL.createObjectURL(fichier)
+    apercuIdentification.hidden = false
+    apercuIdentification.classList.add('analyse-en-cours')
+}
+
+function masquerApercu() {
+    if (imageIdentification.src) {
+        URL.revokeObjectURL(imageIdentification.src)
+        imageIdentification.removeAttribute('src')
+    }
+    apercuIdentification.hidden = true
+    apercuIdentification.classList.remove('analyse-en-cours')
+}
+
 async function identifierPokemon(fichier) {
+    afficherApercu(fichier)
+    try {
+        await envoyerPourIdentification(fichier)
+    } finally {
+        // The image stays displayed (even on failure, to show what was sent);
+        // only the "analysis in progress" effect stops.
+        apercuIdentification.classList.remove('analyse-en-cours')
+    }
+}
+
+async function envoyerPourIdentification(fichier) {
     const textes = TEXTES[langueActuelle]
 
     erreur.textContent = ''
     statutIdentification.textContent = textes.identificationEnCours
 
+    // Checked here too: server.js aborts oversized uploads mid-stream, which
+    // the browser reports as a network error rather than a 413
+    if (fichier.size > TAILLE_MAX_IMAGE) {
+        statutIdentification.textContent = ''
+        erreur.textContent = textes.imageTropGrosse
+        return
+    }
+
+    let response
     try {
-        const response = await fetch('/api/identifier', {
+        response = await fetch('/api/identifier', {
             method: 'POST',
             headers: { 'Content-Type': fichier.type || 'application/octet-stream' },
             body: fichier,
         })
+    } catch (error) {
+        // fetch only rejects when no HTTP response comes back at all: server
+        // not started, or the page opened outside it (file://, editor preview)
+        console.error(error)
+        statutIdentification.textContent = ''
+        erreur.textContent = textes.serveurInjoignable
+        return
+    }
 
+    try {
         const identification = await response.json()
 
         if (!response.ok || !identification.id) {
             statutIdentification.textContent = ''
-            erreur.textContent = textes.identificationErreur
+            erreur.textContent = response.status === 413 ? textes.imageTropGrosse : textes.identificationErreur
             return
         }
 
         inputRecherche.value = String(identification.id)
-        await chercherPokemon()
+        apercuIdentification.classList.remove('analyse-en-cours')
+        await chercherPokemon({ garderApercu: true })
         statutIdentification.textContent = textes.identificationResultat(`${identification.name} — ${(identification.confidence * 100).toFixed(1)}%`)
     } catch (error) {
         console.error(error)

@@ -7,9 +7,10 @@ https://medium.com/@nawat.sun/capturing-pokemon-exploring-image-recognition-with
 That article trains a flatten+dense network to guess a Pokemon's elemental
 TYPE (18 classes) from a grayscale image, reaching ~12% accuracy. Here we
 adapt the same overall pipeline (gather images, preprocess, train, evaluate,
-predict) to a harder goal: recognizing the SPECIES itself (151 classes for
-Gen 1). That needs a convolutional network instead of the article's flat
-dense layers, since a flatten+dense model does not scale to that many classes.
+predict) to a harder goal: recognizing the SPECIES itself (1025 classes,
+every Pokemon through Gen 9). That needs a convolutional network instead of
+the article's flat dense layers, since a flatten+dense model does not scale
+to that many classes.
 
 Usage:
     python whoIsThatPokemon.py train [--limit N] [--epochs N]
@@ -17,9 +18,11 @@ Usage:
 """
 
 import argparse
+import io
 import json
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -31,13 +34,26 @@ import requests
 from PIL import Image
 
 IMG_SIZE = 96
-POKEDEX_RANGE = range(1, 152)  # Generation 1
+POKEDEX_RANGE = range(1, 1026)  # National Pokedex, Gen 1 through Gen 9
 DATA_DIR = Path(__file__).parent / "pokemon_dataset"
 IDS_PATH = DATA_DIR / "ids.json"
 MODEL_PATH = Path(__file__).parent / "pokemon_model.keras"
 CLASS_NAMES_PATH = Path(__file__).parent / "pokemon_class_names.json"
 
 POKEAPI_POKEMON_URL = "https://pokeapi.co/api/v2/pokemon/"
+
+# Official sprites alone are clean renders on flat backgrounds, while user
+# uploads are photos, screenshots, cards, fan art... Adding the top web image
+# search results per species brings that real-world variety into training.
+# Google/Bing Images only serve JS-rendered pages to scripts now, so results
+# come from DuckDuckGo image search (largely backed by Bing's index).
+IMAGES_WEB_PAR_ESPECE = 20
+PREFIXE_IMAGE_WEB = "web_"
+TAILLE_MAX_IMAGE_WEB = 256  # stored downscaled: training only uses IMG_SIZE
+EN_TETES_HTTP = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
+}
 
 # Raster variants per species, spanning several generations' art styles
 # (8-bit through modern official artwork) so each class has real visual
@@ -76,8 +92,25 @@ SPRITE_PATHS = [
     lambda s: s["versions"]["generation-ix"]["scarlet-violet"]["front_shiny"],
 ]
 
+# SPRITE_PATHS indices that are back views. They're kept out of the test set
+# so every one of them is used for training: nobody uploads a photo of a
+# Pokemon's back, so holding them out would waste training data and give a
+# test score that doesn't reflect real use.
+INDICES_SPRITES_DE_DOS = {1, 3, 9, 14, 17, 20}
 
-def telecharger_image(chemin_image, url, tentatives=3):
+
+def session_http():
+    """One shared Session: a bare requests.get() builds a new SSL context per
+    call (~1s, holding the GIL), which serializes concurrent downloads."""
+    session = requests.Session()
+    session.headers.update(EN_TETES_HTTP)
+    adaptateur = requests.adapters.HTTPAdapter(pool_connections=32, pool_maxsize=32)
+    session.mount("https://", adaptateur)
+    session.mount("http://", adaptateur)
+    return session
+
+
+def telecharger_image(session, chemin_image, url, tentatives=3):
     """Download one sprite, tolerating transient network errors.
 
     With ~3000+ concurrent downloads, an occasional dropped connection is
@@ -89,7 +122,7 @@ def telecharger_image(chemin_image, url, tentatives=3):
 
     for tentative in range(tentatives):
         try:
-            image_response = requests.get(url, timeout=15)
+            image_response = session.get(url, timeout=15)
             if image_response.ok:
                 chemin_image.write_bytes(image_response.content)
             return
@@ -105,11 +138,12 @@ def telecharger_dataset(limit=None):
 
     noms_vers_ids = json.loads(IDS_PATH.read_text(encoding="utf-8")) if IDS_PATH.exists() else {}
     taches = []
+    session = session_http()
 
     for pokedex_id in ids:
         for tentative in range(3):
             try:
-                response = requests.get(f"{POKEAPI_POKEMON_URL}{pokedex_id}/", timeout=15)
+                response = session.get(f"{POKEAPI_POKEMON_URL}{pokedex_id}/", timeout=15)
                 response.raise_for_status()
                 break
             except requests.exceptions.RequestException:
@@ -136,9 +170,73 @@ def telecharger_dataset(limit=None):
     IDS_PATH.write_text(json.dumps(noms_vers_ids), encoding="utf-8")
 
     print(f"Téléchargement de {len(taches)} images (les fichiers déjà présents sont ignorés)...")
-    with ThreadPoolExecutor(max_workers=16) as pool:
-        for _ in pool.map(lambda t: telecharger_image(*t), taches):
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        for _ in pool.map(lambda t: telecharger_image(session, *t), taches):
             pass
+
+
+def rechercher_images_web(requete, tentatives=5):
+    """Return image URLs for a web image search, retrying on rate limits.
+
+    Uses Bing's cached thumbnail of each result rather than the original:
+    originals are often multi-MB wallpapers or dead links, while thumbnails
+    (~300px) are always served, fast, and still well above IMG_SIZE.
+    """
+    from ddgs import DDGS
+
+    for tentative in range(tentatives):
+        try:
+            resultats = DDGS().images(requete, max_results=IMAGES_WEB_PAR_ESPECE * 2)
+            return [r.get("thumbnail") or r["image"] for r in resultats]
+        except Exception as erreur:
+            if tentative == tentatives - 1:
+                print(f"Recherche échouée (ignorée) pour '{requete}' : {erreur}")
+                return []
+            time.sleep(5 * 2 ** tentative)
+
+
+def telecharger_image_web(session, url):
+    """Download one web image and return it as a downscaled RGBA image, or
+    None if it's unreachable or not a readable image."""
+    try:
+        response = session.get(url, timeout=15)
+        response.raise_for_status()
+        image = Image.open(io.BytesIO(response.content))
+        image.thumbnail((TAILLE_MAX_IMAGE_WEB, TAILLE_MAX_IMAGE_WEB))
+        return image.convert("RGBA")
+    except Exception:
+        return None
+
+
+def telecharger_images_web_espece(session, nom):
+    """Save the first IMAGES_WEB_PAR_ESPECE usable search results for one
+    species as web_XX.png (PNG so charger_dataset picks them up)."""
+    dossier_espece = DATA_DIR / nom
+    if any(dossier_espece.glob(f"{PREFIXE_IMAGE_WEB}*.png")):
+        return  # already done on a previous run
+
+    urls = rechercher_images_web(f"{nom.replace('-', ' ')} pokemon")
+
+    # Download all candidates concurrently, then keep the first valid ones
+    # in search-rank order so "first N" means the top-ranked results.
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        images = [image for image in pool.map(lambda url: telecharger_image_web(session, url), urls) if image]
+
+    for index, image in enumerate(images[:IMAGES_WEB_PAR_ESPECE]):
+        image.save(dossier_espece / f"{PREFIXE_IMAGE_WEB}{index:02d}.png")
+
+    print(f"{nom} : {min(len(images), IMAGES_WEB_PAR_ESPECE)} images web")
+
+
+def telecharger_images_web():
+    """Add web image search results to every species folder in DATA_DIR.
+
+    Searches run one at a time: the search endpoint rate-limits bursts.
+    """
+    noms = sorted(p.name for p in DATA_DIR.iterdir() if p.is_dir())
+    session = session_http()
+    for nom in noms:
+        telecharger_images_web_espece(session, nom)
 
 
 def charger_image(chemin):
@@ -151,7 +249,10 @@ def charger_image(chemin):
 
 
 def charger_dataset():
-    """Build (images, labels, class_names) arrays from DATA_DIR.
+    """Build (images, labels, testables, class_names) arrays from DATA_DIR.
+
+    testables flags the front-view sprites: the only images eligible for the
+    test set (back views and web images always go to training).
 
     class_names holds {"id": pokedex_id, "name": species_name} so callers
     can look a Pokemon up by number (Tyradex doesn't resolve every PokeAPI
@@ -160,18 +261,25 @@ def charger_dataset():
     noms_vers_ids = json.loads(IDS_PATH.read_text(encoding="utf-8"))
     noms = sorted(p.name for p in DATA_DIR.iterdir() if p.is_dir())
     class_names = [{"id": noms_vers_ids[nom], "name": nom} for nom in noms]
-    images, labels = [], []
+    images, labels, testables = [], [], []
 
     for label_index, nom in enumerate(noms):
         for fichier in (DATA_DIR / nom).glob("*.png"):
-            images.append(charger_image(fichier))
+            try:
+                images.append(charger_image(fichier))
+            except Exception:
+                print(f"Image corrompue ignorée : {fichier}")
+                fichier.unlink()
+                continue
             labels.append(label_index)
+            testables.append(fichier.stem.isdigit() and int(fichier.stem) not in INDICES_SPRITES_DE_DOS)
 
-    return np.array(images), np.array(labels), class_names
+    return np.array(images), np.array(labels), np.array(testables), class_names
 
 
-def separer_train_test(images, labels, num_classes, max_test_par_classe=3):
-    """Hold out up to a few images per class for testing, rest for training.
+def separer_train_test(images, labels, testables, num_classes, max_test_par_classe=3):
+    """Hold out up to a few front-view sprites per class for testing, rest
+    for training.
 
     A plain random/stratified split breaks here: with only a handful of
     images per species, some classes would end up with zero test samples.
@@ -180,9 +288,10 @@ def separer_train_test(images, labels, num_classes, max_test_par_classe=3):
 
     for classe in range(num_classes):
         indices = np.where(labels == classe)[0]
-        n_test = min(max_test_par_classe, len(indices) - 1) if len(indices) > 1 else 0
-        test_idx.extend(indices[:n_test])
-        train_idx.extend(indices[n_test:])
+        candidats = indices[testables[indices]]
+        n_test = min(max_test_par_classe, len(candidats), len(indices) - 1)
+        test_idx.extend(candidats[:n_test])
+        train_idx.extend(np.setdiff1d(indices, candidats[:n_test]))
 
     return images[train_idx], labels[train_idx], images[test_idx], labels[test_idx]
 
@@ -226,11 +335,15 @@ def creer_modele(num_classes):
 
 def entrainer(limit=None, epochs=30):
     telecharger_dataset(limit)
+    telecharger_images_web()
 
-    images, labels, class_names = charger_dataset()
+    global tf
+    import tensorflow as tf
+
+    images, labels, testables, class_names = charger_dataset()
     print(f"{len(images)} images chargées pour {len(class_names)} Pokémon")
 
-    X_train, y_train, X_test, y_test = separer_train_test(images, labels, len(class_names))
+    X_train, y_train, X_test, y_test = separer_train_test(images, labels, testables, len(class_names))
     print(f"{len(X_train)} images d'entraînement, {len(X_test)} de test")
 
     model, base_model = creer_modele(len(class_names))
@@ -295,7 +408,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.commande in ("train",):
-        import tensorflow as tf
         entrainer(limit=args.limit, epochs=args.epochs)
     elif args.commande == "predict":
         if not MODEL_PATH.exists():

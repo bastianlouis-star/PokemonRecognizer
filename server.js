@@ -72,7 +72,9 @@ function gererIdentification(req, res) {
             execFile(
                 VENV_PYTHON,
                 [SCRIPT_PATH, 'predict', cheminImage, '--json'],
-                { timeout: 60000, maxBuffer: 5 * 1024 * 1024 },
+                // Each call starts Python + TensorFlow and loads the model (~15s
+                // on an idle CPU, ~50s+ while a training run is using it)
+                { timeout: 180000, maxBuffer: 5 * 1024 * 1024 },
                 (error, stdout, stderr) => {
                     fs.unlink(cheminImage, () => {})
 

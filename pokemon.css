@@ -300,6 +300,57 @@ body {
     min-height: 1.2em;
 }
 
+#apercu-identification {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+    margin: 8px auto;
+    border: 2px solid var(--bleu-oeil);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+}
+
+#apercu-identification[hidden] {
+    display: none;
+}
+
+#image-identification {
+    display: block;
+    max-width: 100%;
+    max-height: 160px;
+    object-fit: contain;
+}
+
+/* Scan line sweeping over the image while the model analyzes it */
+#apercu-identification.analyse-en-cours::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 30%;
+    background: linear-gradient(to bottom, transparent, rgba(79, 195, 247, 0.55), transparent);
+    animation: balayage 1.6s ease-in-out infinite alternate;
+}
+
+#apercu-identification.analyse-en-cours #image-identification {
+    filter: saturate(0.6) brightness(0.9);
+}
+
+@keyframes balayage {
+    from { top: -30%; }
+    to { top: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #apercu-identification.analyse-en-cours::after {
+        animation: none;
+        top: 0;
+        height: 100%;
+        background: rgba(79, 195, 247, 0.25);
+    }
+}
+
 #statut-identification {
     color: var(--bleu-oeil);
     font-size: 0.85rem;
