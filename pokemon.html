@@ -14,9 +14,12 @@
         <span class="vis vis-bas"></span>
 
         <div class="pokedex-entete">
-            <button type="button" id="bouton-oeil" class="oeil" title="Identifier un Pokémon depuis une image">
-                <div class="oeil-reflet"></div>
-            </button>
+            <div class="oeil-conteneur">
+                <button type="button" id="bouton-oeil" class="oeil" aria-label="Identifier un Pokémon depuis une image" aria-describedby="infobulle-oeil">
+                    <div class="oeil-reflet"></div>
+                </button>
+                <span id="infobulle-oeil" class="infobulle-oeil" role="tooltip">Cliquez sur l'œil pour rechercher un Pokémon à partir d'une image</span>
+            </div>
             <input type="file" id="input-image" accept="image/*" hidden>
             <div class="petites-lumieres">
                 <span class="lumiere rouge"></span>
@@ -59,6 +62,8 @@
                 <div class="croix-directionnelle">
                     <span class="branche verticale"></span>
                     <span class="branche horizontale"></span>
+                    <button type="button" id="croix-gauche" class="croix-fleche gauche" aria-label="Pokémon précédent"></button>
+                    <button type="button" id="croix-droite" class="croix-fleche droite" aria-label="Pokémon suivant"></button>
                 </div>
                 <div class="boutons-ronds">
                     <span class="bouton-rond bleu"></span>

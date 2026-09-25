@@ -109,6 +109,10 @@ const TEXTES = {
         identificationErreur: "Impossible d'identifier ce Pokémon depuis cette image.",
         serveurInjoignable: "Serveur injoignable : lancez « node server.js » puis ouvrez http://localhost:3000.",
         imageTropGrosse: 'Image trop volumineuse (10 Mo maximum).',
+        labelOeil: 'Identifier un Pokémon depuis une image',
+        infobulleOeil: "Cliquez sur l'œil pour rechercher un Pokémon à partir d'une image",
+        pokemonPrecedent: 'Pokémon précédent',
+        pokemonSuivant: 'Pokémon suivant',
     },
     en: {
         labelRecherche: 'Name (English) or Pokédex number:',
@@ -131,6 +135,10 @@ const TEXTES = {
         identificationErreur: 'Could not identify a Pokémon from this image.',
         serveurInjoignable: 'Server unreachable: run "node server.js" and open http://localhost:3000.',
         imageTropGrosse: 'Image too large (10 MB max).',
+        labelOeil: 'Identify a Pokémon from an image',
+        infobulleOeil: 'Click the eye to search for a Pokémon from an image',
+        pokemonPrecedent: 'Previous Pokémon',
+        pokemonSuivant: 'Next Pokémon',
     },
 }
 
@@ -139,6 +147,9 @@ const labelRecherche = document.getElementById('label-recherche')
 const boutonChercher = document.getElementById('chercher')
 const boutonLangue = document.getElementById('bouton-langue')
 const boutonOeil = document.getElementById('bouton-oeil')
+const infobulleOeil = document.getElementById('infobulle-oeil')
+const croixGauche = document.getElementById('croix-gauche')
+const croixDroite = document.getElementById('croix-droite')
 const inputImage = document.getElementById('input-image')
 const statutIdentification = document.getElementById('statut-identification')
 const apercuIdentification = document.getElementById('apercu-identification')
@@ -159,6 +170,10 @@ function appliquerTextesStatiques() {
     inputRecherche.placeholder = textes.placeholderRecherche
     boutonChercher.textContent = textes.rechercherBouton
     boutonLangue.textContent = langueActuelle === 'fr' ? 'EN' : 'FR'
+    boutonOeil.setAttribute('aria-label', textes.labelOeil)
+    infobulleOeil.textContent = textes.infobulleOeil
+    croixGauche.setAttribute('aria-label', textes.pokemonPrecedent)
+    croixDroite.setAttribute('aria-label', textes.pokemonSuivant)
 }
 
 function traduireType(nomFr, langue) {
@@ -476,6 +491,34 @@ boutonLangue.addEventListener('click', () => {
     afficherResultat()
 })
 
+const NUMERO_POKEDEX_MAX = 1025
+
+function numeroActuel() {
+    if (dernieresDonnees) {
+        return dernieresDonnees.pokemon.pokedex_id
+    }
+    // While a search is loading dernieresDonnees is null, but the field already
+    // holds the number being fetched, so repeated presses keep counting from it
+    const numero = Number(inputRecherche.value.trim())
+    return Number.isInteger(numero) ? numero : null
+}
+
+function allerAuPokemon(decalage) {
+    const numero = numeroActuel()
+    // With nothing displayed yet, "next" starts the Pokédex at #1
+    const cible = numero === null ? 1 : numero + decalage
+
+    if (cible < 1 || cible > NUMERO_POKEDEX_MAX) {
+        return
+    }
+
+    inputRecherche.value = String(cible)
+    chercherPokemon()
+}
+
+croixGauche.addEventListener('click', () => allerAuPokemon(-1))
+croixDroite.addEventListener('click', () => allerAuPokemon(1))
+
 const TAILLE_MAX_IMAGE = 10 * 1024 * 1024 // same limit as MAX_UPLOAD_SIZE in server.js
 
 function afficherApercu(fichier) {
@@ -555,7 +598,15 @@ async function envoyerPourIdentification(fichier) {
     }
 }
 
+const DUREE_INFOBULLE_OEIL = 4000
+
+// Shown briefly on load so touch screens, which have no hover, also discover the eye
+infobulleOeil.classList.add('visible')
+const minuterieInfobulleOeil = setTimeout(() => infobulleOeil.classList.remove('visible'), DUREE_INFOBULLE_OEIL)
+
 boutonOeil.addEventListener('click', () => {
+    clearTimeout(minuterieInfobulleOeil)
+    infobulleOeil.classList.remove('visible')
     inputImage.click()
 })
 
