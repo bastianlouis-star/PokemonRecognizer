@@ -1,2 +1,5 @@
 /.venv
 /pokemon_dataset
+/uploads
+__pycache__/
+*.pt

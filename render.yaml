@@ -1,0 +1,8 @@
+# Render Blueprint: hosts the app from the Dockerfile on Render's free plan
+# (Dashboard > New > Blueprint, then select this repository).
+services:
+  - type: web
+    name: pokemon-recognizer
+    runtime: docker
+    plan: free
+    healthCheckPath: /

@@ -39,6 +39,9 @@ DATA_DIR = Path(__file__).parent / "pokemon_dataset"
 IDS_PATH = DATA_DIR / "ids.json"
 MODEL_PATH = Path(__file__).parent / "pokemon_model.keras"
 CLASS_NAMES_PATH = Path(__file__).parent / "pokemon_class_names.json"
+# Lightweight copy of the model for hosting: the TFLite runtime is a few MB
+# where TensorFlow is ~1.5 GB, too much for free hosts (512 MB RAM on Render)
+TFLITE_PATH = Path(__file__).parent / "pokemon_model.tflite"
 
 POKEAPI_POKEMON_URL = "https://pokeapi.co/api/v2/pokemon/"
 
@@ -372,13 +375,51 @@ def entrainer(limit=None, epochs=30):
     print(f"Modèle sauvegardé dans {MODEL_PATH}")
 
 
-def predire(chemin_image, sortie_json=False):
-    model = tf.keras.models.load_model(MODEL_PATH)
-    class_names = json.loads(CLASS_NAMES_PATH.read_text(encoding="utf-8"))
+def exporter_tflite():
+    """Convert the trained Keras model to TFLite (TFLITE_PATH).
 
+    The augmentation layers are left out: they are no-ops at inference, but
+    their random ops have no TFLite equivalent and make conversion fail. The
+    other layers are reused as-is, trained weights included.
+    """
+    model = tf.keras.models.load_model(MODEL_PATH)
+    augmentation, *couches_inference = model.layers[1:]
+
+    entrees = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
+    x = entrees
+    for couche in couches_inference:
+        x = couche(x, training=False)
+    modele_inference = tf.keras.Model(entrees, x)
+
+    convertisseur = tf.lite.TFLiteConverter.from_keras_model(modele_inference)
+    # 8-bit weights: ~4x smaller file for a negligible accuracy loss
+    convertisseur.optimizations = [tf.lite.Optimize.DEFAULT]
+    TFLITE_PATH.write_bytes(convertisseur.convert())
+    print(f"Modèle TFLite sauvegardé dans {TFLITE_PATH} ({TFLITE_PATH.stat().st_size / 1e6:.1f} Mo)")
+
+
+def calculer_logits_tflite(image):
+    from ai_edge_litert.interpreter import Interpreter
+
+    interpreteur = Interpreter(model_path=str(TFLITE_PATH))
+    interpreteur.allocate_tensors()
+    interpreteur.set_tensor(interpreteur.get_input_details()[0]["index"], image[np.newaxis, ...])
+    interpreteur.invoke()
+    return interpreteur.get_tensor(interpreteur.get_output_details()[0]["index"])[0]
+
+
+def predire(chemin_image, sortie_json=False):
+    class_names = json.loads(CLASS_NAMES_PATH.read_text(encoding="utf-8"))
     image = charger_image(chemin_image)
-    logits = model.predict(image[np.newaxis, ...], verbose=0)[0]
-    probabilites = tf.nn.softmax(logits).numpy()
+
+    if tf is not None:
+        model = tf.keras.models.load_model(MODEL_PATH)
+        logits = model.predict(image[np.newaxis, ...], verbose=0)[0]
+    else:
+        logits = calculer_logits_tflite(image)
+
+    exp = np.exp(logits - logits.max())
+    probabilites = exp / exp.sum()
 
     top3 = probabilites.argsort()[-3:][::-1]
     resultats = [
@@ -405,12 +446,22 @@ if __name__ == "__main__":
     parser_predict.add_argument("image", help="Chemin vers l'image à identifier")
     parser_predict.add_argument("--json", action="store_true", help="Sortie JSON (pour un appel programmatique)")
 
+    sous_commandes.add_parser("export-tflite", help="Convertit le modèle entraîné en TFLite (pour l'hébergement)")
+
     args = parser.parse_args()
 
     if args.commande in ("train",):
         entrainer(limit=args.limit, epochs=args.epochs)
-    elif args.commande == "predict":
-        if not MODEL_PATH.exists():
-            sys.exit("Aucun modèle entraîné. Lancez d'abord : python whoIsThatPokemon.py train")
+    elif args.commande == "export-tflite":
         import tensorflow as tf
+        exporter_tflite()
+    elif args.commande == "predict":
+        # Without TensorFlow installed (hosted image, see Dockerfile), fall
+        # back to the TFLite model and its lightweight runtime
+        try:
+            import tensorflow as tf
+        except ImportError:
+            tf = None
+        if not (MODEL_PATH if tf is not None else TFLITE_PATH).exists():
+            sys.exit("Aucun modèle entraîné. Lancez d'abord : python whoIsThatPokemon.py train")
         predire(args.image, sortie_json=args.json)

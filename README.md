@@ -88,3 +88,17 @@ Ajouter `--json` pour une sortie JSON (c'est ce que `server.js` utilise en inter
 ```
 
 Le modèle est sauvegardé dans `pokemon_model_torch.pt` ; la sortie `--json` a le même format que celle de `whoIsThatPokemon.py`.
+
+## Mise en ligne (Render, gratuit)
+
+L'application est hébergée via le `Dockerfile` sur l'offre gratuite de [Render](https://render.com/) (512 Mo de RAM). TensorFlow (~1,5 Go) n'y tient pas : l'image utilise une version TFLite du modèle (`pokemon_model.tflite`, ~4 Mo, quasiment la même précision) avec le runtime léger `ai-edge-litert`.
+
+1. Après chaque ré-entraînement, régénérer le modèle TFLite puis committer `pokemon_model.tflite` :
+
+   ```bash
+   ./.venv/Scripts/python whoIsThatPokemon.py export-tflite
+   ```
+
+2. Sur Render : **New > Blueprint**, sélectionner ce dépôt GitHub (le fichier `render.yaml` configure le service).
+
+Sur l'offre gratuite, le service se met en veille après 15 minutes sans visite ; la première requête suivante prend alors environ une minute.

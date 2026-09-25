@@ -1,0 +1,7 @@
+.git
+.venv
+pokemon_dataset
+uploads
+*.pt
+train_log.txt
+*.keras

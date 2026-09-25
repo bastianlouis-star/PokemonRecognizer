@@ -4,7 +4,7 @@ const path = require('node:path')
 const crypto = require('node:crypto')
 const { execFile } = require('node:child_process')
 
-const PORT = 3000
+const PORT = process.env.PORT || 3000
 const ROOT = __dirname
 
 const MIME_TYPES = {
@@ -17,7 +17,8 @@ const MIME_TYPES = {
     '.svg': 'image/svg+xml',
 }
 
-const VENV_PYTHON = path.join(ROOT, '.venv', 'Scripts', 'python.exe')
+// PYTHON overrides the local Windows venv, e.g. in the Docker image (Dockerfile)
+const PYTHON = process.env.PYTHON || path.join(ROOT, '.venv', 'Scripts', 'python.exe')
 const SCRIPT_PATH = path.join(ROOT, 'whoIsThatPokemon.py')
 const UPLOADS_DIR = path.join(ROOT, 'uploads')
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
@@ -70,7 +71,7 @@ function gererIdentification(req, res) {
             }
 
             execFile(
-                VENV_PYTHON,
+                PYTHON,
                 [SCRIPT_PATH, 'predict', cheminImage, '--json'],
                 // Each call starts Python + TensorFlow and loads the model (~15s
                 // on an idle CPU, ~50s+ while a training run is using it)
